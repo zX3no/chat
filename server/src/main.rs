@@ -1,3 +1,4 @@
+#![allow(clippy::new_without_default)]
 use std::{
     io::{self, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
@@ -6,10 +7,8 @@ use std::{
     time::Duration,
 };
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
-
 #[derive(Debug)]
-enum Event {
+pub enum Event {
     Message((SocketAddr, Vec<u8>)),
 }
 
@@ -42,89 +41,86 @@ fn read_message(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
     Ok(message)
 }
 
-fn client_thread(mut stream: TcpStream, send: Sender<Event>, recv: Receiver<Event>) {
+fn client_thread(mut stream: TcpStream) {
     stream
         .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
 
+    let (mut send, mut recv) = channel();
     let ip = stream.peer_addr().unwrap();
 
     loop {
         if let Ok(msg) = read_message(&mut stream) {
-            send.send(Event::Message((ip, msg))).unwrap();
+            send.send(Event::Message((ip, msg)));
         }
 
-        if let Ok(event) = recv.try_recv() {
+        if let Some(event) = recv.try_recv() {
             println!("{:?}", event);
             match event {
-                Event::Message((other_ip, msg)) if ip != other_ip => {
+                Event::Message((other_ip, msg)) if &ip != other_ip => {
                     println!("Sending message to client! {}", ip);
-                    match stream.write_all(&msg) {
+                    match stream.write_all(msg) {
                         Ok(_) => (),
                         //Close the thread.
                         Err(err) => return println!("Warning: {}", err),
                     }
                 }
-                _ => (),
+                Event::Message((other_ip, _)) => println!("Did not send: {} {}", ip, other_ip),
             }
         }
+    }
+}
+
+static mut CHANNEL: Vec<Event> = Vec::new();
+
+pub fn channel() -> (Sender, Receiver) {
+    (Sender::new(), Receiver::new())
+}
+
+pub struct Sender {
+    pub pos: usize,
+}
+
+impl Sender {
+    pub fn new() -> Self {
+        Self { pos: 0 }
+    }
+    pub fn send(&mut self, event: Event) {
+        unsafe {
+            CHANNEL.push(event);
+
+            if CHANNEL.len() > 10 {
+                CHANNEL.remove(0);
+            }
+            self.pos = CHANNEL.len()
+        }
+    }
+}
+
+pub struct Receiver {
+    pub pos: usize,
+}
+
+impl Receiver {
+    pub fn new() -> Self {
+        unsafe { Self { pos: CHANNEL.len() } }
+    }
+    pub fn try_recv(&mut self) -> Option<&Event> {
+        let event = unsafe { CHANNEL.get(self.pos) };
+        if event.is_some() {
+            self.pos += 1;
+        }
+        event
     }
 }
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:7777").unwrap();
 
-    // thread::spawn(move || {
-    //     let mut clients = HashMap::new();
-    //     loop {
-    //         if let Ok(c) = recv.try_recv() {
-    //             let ip = c.peer_addr().unwrap();
-    //             clients.insert(ip, c);
-    //         }
-
-    //         let mut messages = Vec::new();
-
-    //         for (k, v) in &mut clients {
-    //             if let Ok(msg) = read_message(v) {
-    //                 messages.push((*k, msg));
-    //             }
-    //         }
-
-    //         let mut delete = Vec::new();
-
-    //         for (ip, msg) in messages {
-    //             for (k, v) in &mut clients {
-    //                 if &ip == k {
-    //                     continue;
-    //                 }
-
-    //                 println!("Sending message to client! {}", k);
-    //                 match v.write_all(&msg) {
-    //                     Ok(_) => (),
-    //                     Err(err) => {
-    //                         println!("Warning: {}", err);
-    //                         delete.push(ip)
-    //                     }
-    //                 };
-    //             }
-    //         }
-
-    //         //Delete the broken clients
-    //         for ip in delete {
-    //             println!("Dropping connection to {}", ip);
-    //             clients.remove(&ip);
-    //         }
-    //     }
-    // });
-
-    let (send, recv) = unbounded();
-
     for stream in listener.incoming() {
         let client = stream.unwrap();
         println!("Client connected: {}", client.peer_addr().unwrap());
 
-        let send = send.clone();
-        let recv = recv.clone();
-        thread::spawn(|| client_thread(client, send, recv));
+        thread::spawn(|| client_thread(client));
     }
 }
