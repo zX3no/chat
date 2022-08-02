@@ -46,15 +46,15 @@ fn client_thread(mut stream: TcpStream) {
         .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
 
-    let (mut send, mut recv) = channel();
+    let mut channel = Channel::new();
     let ip = stream.peer_addr().unwrap();
 
     loop {
         if let Ok(msg) = read_message(&mut stream) {
-            send.send(Event::Message((ip, msg)));
+            channel.send(Event::Message((ip, msg)));
         }
 
-        if let Some(event) = recv.try_recv() {
+        if let Some(event) = channel.try_recv() {
             println!("{:?}", event);
             match event {
                 Event::Message((other_ip, msg)) if &ip != other_ip => {
@@ -65,7 +65,7 @@ fn client_thread(mut stream: TcpStream) {
                         Err(err) => return println!("Warning: {}", err),
                     }
                 }
-                Event::Message((other_ip, _)) => println!("Did not send: {} {}", ip, other_ip),
+                _ => (),
             }
         }
     }
@@ -73,15 +73,11 @@ fn client_thread(mut stream: TcpStream) {
 
 static mut CHANNEL: Vec<Event> = Vec::new();
 
-pub fn channel() -> (Sender, Receiver) {
-    (Sender::new(), Receiver::new())
-}
-
-pub struct Sender {
+pub struct Channel {
     pub pos: usize,
 }
 
-impl Sender {
+impl Channel {
     pub fn new() -> Self {
         Self { pos: 0 }
     }
@@ -91,19 +87,9 @@ impl Sender {
 
             if CHANNEL.len() > 10 {
                 CHANNEL.remove(0);
+                self.pos -= 1;
             }
-            self.pos = CHANNEL.len()
         }
-    }
-}
-
-pub struct Receiver {
-    pub pos: usize,
-}
-
-impl Receiver {
-    pub fn new() -> Self {
-        unsafe { Self { pos: CHANNEL.len() } }
     }
     pub fn try_recv(&mut self) -> Option<&Event> {
         let event = unsafe { CHANNEL.get(self.pos) };

@@ -27,7 +27,7 @@ fn send_msg(msg: &str, stream: &mut TcpStream) {
 }
 
 fn read_message(stream: &mut TcpStream) -> io::Result<String> {
-    stream.set_read_timeout(Some(Duration::from_millis(10)))?;
+    stream.set_read_timeout(Some(Duration::from_millis(20)))?;
     let mut packet_size = [0; 2];
     stream.read_exact(&mut packet_size)?;
 
@@ -43,13 +43,12 @@ fn read_message(stream: &mut TcpStream) -> io::Result<String> {
 fn main() {
     let (send, recv) = mpsc::channel();
 
-    //Input thread
+    // Input thread
     thread::spawn(move || {
         let mut stdin = stdin().lock();
-        let mut stdout = stdout().lock();
         loop {
             print!("> ");
-            stdout.flush().unwrap();
+            stdout().flush().unwrap();
 
             //Read user input
             let mut buf = String::new();
@@ -67,6 +66,8 @@ fn main() {
 
         if let Ok(msg) = read_message(&mut stream) {
             println!("Server Sent: {}", msg);
+            print!("> ");
+            stdout().flush().unwrap();
         }
     }
 }
