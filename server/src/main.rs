@@ -1,10 +1,6 @@
-#![allow(clippy::new_without_default)]
 use std::{
     io::{self, Read, Write},
-    mem::{zeroed, MaybeUninit},
     net::{SocketAddr, TcpListener, TcpStream},
-    ptr::null,
-    str::from_utf8,
     thread,
     time::Duration,
 };
@@ -73,22 +69,10 @@ fn client_thread(mut stream: TcpStream) {
     }
 }
 
-// static mut CHANNEL: [Event; 10] = [
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-//     Event::Empty,
-// ];
-
 static mut EVENT_COUNT: usize = 0;
 static mut CHANNEL: Vec<Event> = Vec::new();
 
+#[derive(Default)]
 pub struct Channel {
     items_read: usize,
 }
