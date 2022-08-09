@@ -1,13 +1,15 @@
 #![allow(clippy::new_without_default)]
 use std::{
     io::{self, Read, Write},
+    mem::{zeroed, MaybeUninit},
     net::{SocketAddr, TcpListener, TcpStream},
+    ptr::null,
     str::from_utf8,
     thread,
     time::Duration,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
     Message((SocketAddr, Vec<u8>)),
 }
@@ -29,11 +31,11 @@ fn read_message(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
     //Fill up the packet to the size previously sent.
     stream.read_exact(&mut packet).unwrap();
 
-    println!(
-        "{} sent message: '{}'",
-        stream.peer_addr().unwrap(),
-        from_utf8(&packet).unwrap()
-    );
+    // println!(
+    //     "{} sent message: '{}'",
+    //     stream.peer_addr().unwrap(),
+    //     from_utf8(&packet).unwrap()
+    // );
 
     let mut message = packet_size.to_vec();
     message.extend(packet);
@@ -55,10 +57,10 @@ fn client_thread(mut stream: TcpStream) {
         }
 
         if let Some(event) = channel.try_recv() {
-            println!("{:?}", event);
+            // println!("{:?}", event);
             match event {
                 Event::Message((other_ip, msg)) if &ip != other_ip => {
-                    println!("Sending message to client! {}", ip);
+                    // println!("Sending message to client! {}", ip);
                     match stream.write_all(msg) {
                         Ok(_) => (),
                         //Close the thread.
@@ -71,32 +73,56 @@ fn client_thread(mut stream: TcpStream) {
     }
 }
 
+// static mut CHANNEL: [Event; 10] = [
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+//     Event::Empty,
+// ];
+
+static mut EVENT_COUNT: usize = 0;
 static mut CHANNEL: Vec<Event> = Vec::new();
 
 pub struct Channel {
-    pub pos: usize,
+    items_read: usize,
 }
 
 impl Channel {
     pub fn new() -> Self {
-        Self { pos: 0 }
+        unsafe {
+            Self {
+                items_read: EVENT_COUNT,
+            }
+        }
     }
     pub fn send(&mut self, event: Event) {
         unsafe {
             CHANNEL.push(event);
+            EVENT_COUNT += 1;
 
-            if CHANNEL.len() > 10 {
+            if CHANNEL.len() == 10 {
                 CHANNEL.remove(0);
-                self.pos -= 1;
             }
         }
     }
     pub fn try_recv(&mut self) -> Option<&Event> {
-        let event = unsafe { CHANNEL.get(self.pos) };
-        if event.is_some() {
-            self.pos += 1;
+        unsafe {
+            if self.items_read != EVENT_COUNT {
+                let dif = EVENT_COUNT - self.items_read;
+                let len = CHANNEL.len();
+                let event = &CHANNEL[len - dif];
+                self.items_read += 1;
+                Some(event)
+            } else {
+                None
+            }
         }
-        event
     }
 }
 

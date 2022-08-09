@@ -59,13 +59,15 @@ fn main() {
     });
 
     let mut stream = TcpStream::connect("127.0.0.1:7777").unwrap();
+
+    //TODO: Send the server your user-name.
     loop {
         if let Ok(msg) = recv.try_recv() {
             send_msg(&msg, &mut stream);
         }
 
         if let Ok(msg) = read_message(&mut stream) {
-            println!("Server Sent: {}", msg);
+            println!("{}", msg);
             print!("> ");
             stdout().flush().unwrap();
         }
